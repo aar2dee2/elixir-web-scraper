@@ -1,0 +1,264 @@
+# Web Scraper
+
+```elixir
+Mix.install([
+  {:kino, "~> 0.10.0"},
+  {:floki, "~> 0.34.3"},
+  {:jason, "~> 1.4"},
+  {:httpoison, "~> 2.1"}
+])
+```
+
+## Build the Form
+
+```elixir
+main_url = Kino.Input.text("Main URL")
+has_pagination = Kino.Input.checkbox("Has Pagination")
+num_pages = Kino.Input.text("Number of pages to crawl")
+
+main_url_slug =
+  Kino.Input.text(
+    "Re-enter main URL with a placeholder for page number e.g. 'https://example.com/#{}'"
+  )
+
+main_item_selector = Kino.Input.text("CSS Selector for the main item")
+crawl_each_page = Kino.Input.checkbox("Need to crawl individual page?")
+
+item_url_selector =
+  Kino.Input.text("CSS selector for main url (should be url of pdf if item is pdf)")
+
+relative_url_prefix = Kino.Input.text("Prefix to add to relative urls")
+title_selector = Kino.Input.text("CSS selector for title")
+atrb_1_selector = Kino.Input.text("Enter the selector for atrb_1")
+atrb_2_selector = Kino.Input.text("Enter the selector for date or atrb_1")
+
+scraper_form =
+  Kino.Control.form(
+    [
+      main_url: main_url,
+      has_pagination: has_pagination,
+      num_pages: num_pages,
+      main_url_slug: main_url_slug,
+      main_item_selector: main_item_selector,
+      item_url_selector: item_url_selector,
+      crawl_each_page: crawl_each_page,
+      relative_url_prefix: relative_url_prefix,
+      title_selector: title_selector,
+      atrb_1_selector: atrb_1_selector,
+      atrb_2_selector: atrb_2_selector
+    ],
+    submit: "Process"
+  )
+```
+
+## Define the Scraper Module
+
+```elixir
+defmodule Scraper do
+  @moduledoc """
+  A simple web sraper
+  """
+
+  require Logger
+  alias HTTPoison, as: HTTP
+
+  def test_output(data) do
+    # should run scrape on a single page
+
+    if data.scrape_each_page == true do
+      page_links =
+        scrape(data.main_url, data.main_item_selector)
+        |> Enum.map(fn x ->
+          partial_url = Floki.attribute(x, "href") |> Enum.at(0) |> to_string()
+          full_url = to_string(data.relative_url_prefix) <> partial_url
+          full_url
+        end)
+
+      IO.inspect(page_links)
+      # go to each page, get the attributes from each page
+      output =
+        Enum.map(
+          page_links,
+          fn url ->
+            body = scrape_page(url)
+
+            get_attributes(
+              body,
+              data
+            )
+          end
+        )
+        |> Enum.filter(fn x -> x != nil end)
+
+      IO.inspect(output)
+    else
+      # get_attributes for each item and then add the static information to each item
+      items = scrape(data.main_url, data.main_item_selector)
+
+      Enum.map(items, &get_attributes(&1, data))
+      |> Enum.filter(fn x -> x != nil end)
+    end
+  end
+
+  def scrape_all(_data) do
+    # should iteratively scrape all pages and append new items to a struct
+    # finally convert the resulting struct into JSON
+    # write the JSON to a file and prompt user to download file
+  end
+
+  # functions for getting main items from a page
+  def scrape(url, main_item_selector) do
+    case HTTP.get(url) do
+      {:ok, %HTTP.Response{status_code: 200, body: body}} ->
+        {:ok, document} = Floki.parse_document(body)
+        get_items(document, main_item_selector)
+
+      {:ok, %HTTP.Response{status_code: status_code, body: _body}} ->
+        Logger.info("Received status code #{status_code} from #{url}")
+        :error
+
+      {:error, %HTTP.Error{reason: reason}} ->
+        Logger.error("HTTP Error: #{reason}")
+        :error
+    end
+  end
+
+  defp get_items(body, selector) do
+    items =
+      body
+      |> Floki.find(selector)
+
+    items
+  end
+
+  # functions from getting information from a product page
+  def scrape_page(url) do
+    case HTTP.get(url) do
+      {:ok, %HTTP.Response{status_code: 200, body: body}} ->
+        {:ok, document} = Floki.parse_document(body)
+        document
+
+      {:ok, %HTTP.Response{status_code: status_code, body: _body}} ->
+        Logger.info("Received status code #{status_code} from #{url}")
+        :error
+
+      {:error, %HTTP.Error{reason: reason}} ->
+        Logger.error("HTTP Error: #{reason}")
+        :error
+    end
+  end
+
+  defp get_attributes(item, data) do
+    # use the selectors and static information given in data to extract details from the item
+    title = Floki.find(item, data.title_selector) |> Floki.text() |> to_string()
+
+    url =
+      Floki.find(item, data.item_url_selector)
+      |> Floki.attribute("href")
+      |> Enum.at(0)
+      |> to_string()
+      |> String.trim()
+
+    url_prefix = to_string(data.relative_url_prefix) |> String.trim()
+
+    url =
+      if String.length(url_prefix) > 0 and !String.contains?(url, url_prefix) do
+        url_prefix <> url
+      else
+        url
+      end
+
+    related_url = to_string(data.related_url_input) |> String.trim()
+
+    if String.length(title) == 0 or String.length(url) == String.length(related_url) do
+      nil
+    else
+      {resource_type, _} = to_string(data.resource_type_input) |> Integer.parse()
+
+      publisher = to_string(data.publisher_input) |> String.trim()
+
+      year_selector = data.year_selector
+      date_selector = data.date_selector
+
+      {year, date_year_month_day} =
+        cond do
+          year_selector != "" and date_selector != "" ->
+            {get_data_from_selector(item, year_selector),
+             get_data_from_selector(item, date_selector)}
+
+          year_selector != "" and date_selector == "" ->
+            {get_data_from_selector(item, year_selector), ""}
+
+          year_selector == "" and date_selector != "" ->
+            timestamp = get_data_from_selector(item, date_selector)
+            parsed_date_tuple = DateTime.from_iso8601(timestamp)
+
+            year =
+              case parsed_date_tuple do
+                {_, parsed_date, _} -> parsed_date.year
+                _ -> ""
+              end
+
+            {year, timestamp}
+
+          true ->
+            {"", ""}
+        end
+
+      details =
+        Map.new([
+          {"title", title},
+          {"url", url},
+          {"year", year},
+          {"date_year_month_day", date_year_month_day},
+          {"resource_type", resource_type},
+          {"related_url", related_url},
+          {"publisher", publisher},
+          {"is_global", false},
+          {"is_pdf", true}
+        ])
+
+      details
+    end
+  end
+
+  defp write_to_file(content, filename) do
+    File.write(filename, content)
+  end
+
+  defp get_data_from_selector(item, selector) do
+    Floki.find(item, selector)
+    |> Floki.text()
+    |> to_string()
+    |> String.replace("Published:", "")
+    |> String.trim()
+  end
+
+  # to get a JSON object from an Elixir map, just pipe the map into `JSON.encode`
+end
+```
+
+## Listen to Form Submissions and Process them
+
+```elixir
+frame = Kino.Frame.new()
+```
+
+```elixir
+Kino.listen(
+  scraper_form,
+  fn event ->
+    IO.inspect(event)
+    # Create a function that generates the JSON output
+    content_fun = fn ->
+      Scraper.test_output(event.data)
+      |> Jason.encode!()
+    end
+
+    # Create the download button
+    Kino.Frame.render(frame, Kino.Download.new(content_fun), to: event.origin)
+  end
+)
+```
+
+Thanks [Jonatan Klosko](https://elixirforum.com/t/download-processed-data-from-kino-listen/57276)!
