@@ -12,40 +12,66 @@ Mix.install([
 ## Build the Form
 
 ```elixir
+url_list = Kino.Input.textarea("Enter list of urls separated by commas")
 main_url = Kino.Input.text("Main URL")
 has_pagination = Kino.Input.checkbox("Has Pagination")
-num_pages = Kino.Input.text("Number of pages to crawl")
+num_pages = Kino.Input.text("Number of pages to scrape")
 
 main_url_slug =
   Kino.Input.text(
     "Re-enter main URL with a placeholder for page number e.g. 'https://example.com/#{}'"
   )
 
+start_from = Kino.Input.text("Enter first value to apply to slug")
+
+page_change_direction =
+  Kino.Input.select("Increase or decrease value to get new pages",
+    increase: "Increase",
+    decrease: "Decrease"
+  )
+
+page_change_delta =
+  Kino.Input.text(
+    "Enter the integer delta to get next page e.g. if pages are 1,2,3 this should be 1"
+  )
+
 main_item_selector = Kino.Input.text("CSS Selector for the main item")
-crawl_each_page = Kino.Input.checkbox("Need to crawl individual page?")
+scrape_each_page = Kino.Input.checkbox("Need to scrape individual page?")
 
 item_url_selector =
   Kino.Input.text("CSS selector for main url (should be url of pdf if item is pdf)")
 
 relative_url_prefix = Kino.Input.text("Prefix to add to relative urls")
 title_selector = Kino.Input.text("CSS selector for title")
-atrb_1_selector = Kino.Input.text("Enter the selector for atrb_1")
-atrb_2_selector = Kino.Input.text("Enter the selector for date or atrb_1")
+
+# Static values to include
+related_url_input = Kino.Input.text("Enter the related url")
+resource_type_input = Kino.Input.text("Enter the resource type as integer")
+publisher_input = Kino.Input.text("Enter the name of publisher")
+year_selector = Kino.Input.text("Enter the selector for year")
+date_selector = Kino.Input.text("Enter the selector for date")
 
 scraper_form =
   Kino.Control.form(
     [
       main_url: main_url,
+      url_list: url_list,
       has_pagination: has_pagination,
       num_pages: num_pages,
       main_url_slug: main_url_slug,
+      start_from: start_from,
+      page_change_direction: page_change_direction,
+      page_change_delta: page_change_delta,
+      related_url_input: related_url_input,
       main_item_selector: main_item_selector,
       item_url_selector: item_url_selector,
-      crawl_each_page: crawl_each_page,
+      scrape_each_page: scrape_each_page,
       relative_url_prefix: relative_url_prefix,
       title_selector: title_selector,
-      atrb_1_selector: atrb_1_selector,
-      atrb_2_selector: atrb_2_selector
+      year_selector: year_selector,
+      date_selector: date_selector,
+      resource_type_input: resource_type_input,
+      publisher_input: publisher_input
     ],
     submit: "Process"
   )
@@ -62,7 +88,50 @@ defmodule Scraper do
   require Logger
   alias HTTPoison, as: HTTP
 
-  def test_output(data) do
+  def scrape_all(data) do
+    url_list = to_string(data.url_list) |> String.trim()
+
+    urls =
+      if String.length(url_list) > 0 do
+        String.split(url_list, ",")
+        |> Enum.map(&String.trim(&1))
+        |> Enum.filter(fn x -> x != "" end)
+      else
+        url = data.main_url_slug |> to_string()
+
+        num_pages = get_clean_input(data.num_pages, :int)
+
+        start_from = get_clean_input(data.start_from, :int)
+
+        page_change_delta = get_clean_input(data.page_change_delta, :int)
+
+        pages_range =
+          case data.page_change_direction do
+            :increase ->
+              Enum.to_list(start_from..(start_from + (num_pages - 1) * page_change_delta))
+
+            :decrease ->
+              Enum.to_list(start_from..(start_from - (num_pages - 1) * page_change_delta))
+
+            _ ->
+              []
+          end
+
+        pages_range
+        |> Enum.map(fn page ->
+          url
+          |> String.replace("\#{}", Integer.to_string(page))
+        end)
+      end
+
+    IO.inspect(urls)
+    output = for(x <- urls, do: get_page(Map.merge(data, %{main_url: x}))) |> List.flatten()
+
+    IO.inspect(length(output))
+    output
+  end
+
+  def get_page(data) do
     # should run scrape on a single page
 
     if data.scrape_each_page == true do
@@ -74,7 +143,6 @@ defmodule Scraper do
           full_url
         end)
 
-      IO.inspect(page_links)
       # go to each page, get the attributes from each page
       output =
         Enum.map(
@@ -90,7 +158,7 @@ defmodule Scraper do
         )
         |> Enum.filter(fn x -> x != nil end)
 
-      IO.inspect(output)
+      output
     else
       # get_attributes for each item and then add the static information to each item
       items = scrape(data.main_url, data.main_item_selector)
@@ -98,12 +166,6 @@ defmodule Scraper do
       Enum.map(items, &get_attributes(&1, data))
       |> Enum.filter(fn x -> x != nil end)
     end
-  end
-
-  def scrape_all(_data) do
-    # should iteratively scrape all pages and append new items to a struct
-    # finally convert the resulting struct into JSON
-    # write the JSON to a file and prompt user to download file
   end
 
   # functions for getting main items from a page
@@ -150,7 +212,7 @@ defmodule Scraper do
 
   defp get_attributes(item, data) do
     # use the selectors and static information given in data to extract details from the item
-    title = Floki.find(item, data.title_selector) |> Floki.text() |> to_string()
+    title = get_data_from_selector(item, data.title_selector)
 
     url =
       Floki.find(item, data.item_url_selector)
@@ -222,10 +284,6 @@ defmodule Scraper do
     end
   end
 
-  defp write_to_file(content, filename) do
-    File.write(filename, content)
-  end
-
   defp get_data_from_selector(item, selector) do
     Floki.find(item, selector)
     |> Floki.text()
@@ -234,7 +292,24 @@ defmodule Scraper do
     |> String.trim()
   end
 
-  # to get a JSON object from an Elixir map, just pipe the map into `JSON.encode`
+  defp get_clean_input(item, type) do
+    cleaned = to_string(item) |> String.trim()
+
+    output =
+      case type do
+        :int ->
+          {num, _} = Integer.parse(cleaned)
+          num
+
+        :str ->
+          cleaned
+
+        _ ->
+          cleaned
+      end
+
+    output
+  end
 end
 ```
 
@@ -251,8 +326,11 @@ Kino.listen(
     IO.inspect(event)
     # Create a function that generates the JSON output
     content_fun = fn ->
-      Scraper.test_output(event.data)
-      |> Jason.encode!()
+      output =
+        Scraper.scrape_all(event.data)
+        |> Jason.encode!()
+
+      output
     end
 
     # Create the download button
