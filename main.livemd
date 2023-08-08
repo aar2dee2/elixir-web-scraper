@@ -170,7 +170,21 @@ defmodule Scraper do
 
   # functions for getting main items from a page
   def scrape(url, main_item_selector) do
-    case HTTP.get(url) do
+    case HTTP.get(url, [],
+           ssl: [
+             verify_fun:
+               {fn _, reason, state ->
+                  case reason do
+                    {:bad_cert, :cert_expired} -> {:valid, state}
+                    {:bad_cert, :unknown_ca} -> {:valid, state}
+                    {:extension, _} -> {:valid, state}
+                    :valid -> {:valid, state}
+                    :valid_peer -> {:valid, state}
+                    error -> {:fail, error}
+                  end
+                end, []}
+           ]
+         ) do
       {:ok, %HTTP.Response{status_code: 200, body: body}} ->
         {:ok, document} = Floki.parse_document(body)
         get_items(document, main_item_selector)
@@ -195,7 +209,21 @@ defmodule Scraper do
 
   # functions from getting information from a product page
   def scrape_page(url) do
-    case HTTP.get(url) do
+    case HTTP.get(url, [],
+           ssl: [
+             verify_fun:
+               {fn _, reason, state ->
+                  case reason do
+                    {:bad_cert, :cert_expired} -> {:valid, state}
+                    {:bad_cert, :unknown_ca} -> {:valid, state}
+                    {:extension, _} -> {:valid, state}
+                    :valid -> {:valid, state}
+                    :valid_peer -> {:valid, state}
+                    error -> {:fail, error}
+                  end
+                end, []}
+           ]
+         ) do
       {:ok, %HTTP.Response{status_code: 200, body: body}} ->
         {:ok, document} = Floki.parse_document(body)
         document
@@ -327,8 +355,13 @@ Kino.listen(
     # Create a function that generates the JSON output
     content_fun = fn ->
       output =
-        Scraper.scrape_all(event.data)
-        |> Jason.encode!()
+        if event.data.has_pagination == true do
+          Scraper.scrape_all(event.data)
+          |> Jason.encode!()
+        else
+          Scraper.get_page(event.data)
+          |> Jason.encode!()
+        end
 
       output
     end
