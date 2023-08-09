@@ -5,7 +5,8 @@ Mix.install([
   {:kino, "~> 0.10.0"},
   {:floki, "~> 0.34.3"},
   {:jason, "~> 1.4"},
-  {:httpoison, "~> 2.1"}
+  {:httpoison, "~> 2.1"},
+  {:hackney, "~> 1.18"}
 ])
 ```
 
@@ -317,6 +318,7 @@ defmodule Scraper do
     |> Floki.text()
     |> to_string()
     |> String.replace("Published:", "")
+    |> String.replace("Recent Publication:", "")
     |> String.trim()
   end
 
