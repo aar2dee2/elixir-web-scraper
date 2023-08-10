@@ -42,6 +42,8 @@ scrape_each_page = Kino.Input.checkbox("Need to scrape individual page?")
 item_url_selector =
   Kino.Input.text("CSS selector for main url (should be url of pdf if item is pdf)")
 
+item_url_selector_2 = Kino.Input.text("1st Alternative CSS selector for main url")
+item_url_selector_3 = Kino.Input.text("2nd Alternative CSS selector for main url")
 relative_url_prefix = Kino.Input.text("Prefix to add to relative urls")
 title_selector = Kino.Input.text("CSS selector for title")
 
@@ -66,6 +68,8 @@ scraper_form =
       related_url_input: related_url_input,
       main_item_selector: main_item_selector,
       item_url_selector: item_url_selector,
+      item_url_selector_2: item_url_selector_2,
+      item_url_selector_3: item_url_selector_3,
       scrape_each_page: scrape_each_page,
       relative_url_prefix: relative_url_prefix,
       title_selector: title_selector,
@@ -144,6 +148,7 @@ defmodule Scraper do
           full_url
         end)
 
+      IO.inspect(page_links)
       # go to each page, get the attributes from each page
       output =
         Enum.map(
@@ -184,7 +189,9 @@ defmodule Scraper do
                     error -> {:fail, error}
                   end
                 end, []}
-           ]
+           ],
+           recv_timeout: 10000,
+           timeout: 20000
          ) do
       {:ok, %HTTP.Response{status_code: 200, body: body}} ->
         {:ok, document} = Floki.parse_document(body)
@@ -223,7 +230,9 @@ defmodule Scraper do
                     error -> {:fail, error}
                   end
                 end, []}
-           ]
+           ],
+           recv_timeout: 10000,
+           timeout: 20000
          ) do
       {:ok, %HTTP.Response{status_code: 200, body: body}} ->
         {:ok, document} = Floki.parse_document(body)
@@ -241,19 +250,31 @@ defmodule Scraper do
 
   defp get_attributes(item, data) do
     # use the selectors and static information given in data to extract details from the item
-    title = get_data_from_selector(item, data.title_selector)
+    title = get_text_from_selector(item, data.title_selector)
+    url_selector_1 = get_clean_input(data.item_url_selector, :str)
+    url_selector_2 = get_clean_input(data.item_url_selector_2, :str)
+    url_selector_3 = get_clean_input(data.item_url_selector_3, :str)
 
-    url =
-      Floki.find(item, data.item_url_selector)
-      |> Floki.attribute("href")
-      |> Enum.at(0)
-      |> to_string()
-      |> String.trim()
+    possible_urls =
+      Enum.map(
+        [url_selector_1, url_selector_2, url_selector_3],
+        fn x ->
+          get_attribute_from_selector(item, x, "href")
+        end
+      )
+      |> Enum.filter(fn x ->
+        String.length(x) != 0
+      end)
+
+    IO.inspect(possible_urls)
+    url = Enum.at(possible_urls, 0)
+
 
     url_prefix = to_string(data.relative_url_prefix) |> String.trim()
 
     url =
-      if String.length(url_prefix) > 0 and !String.contains?(url, url_prefix) do
+      if String.length(url_prefix) > 0 and
+           (!String.contains?(url, "https://") or !String.contains?(url, url_prefix)) do
         url_prefix <> url
       else
         url
@@ -274,14 +295,14 @@ defmodule Scraper do
       {year, date_year_month_day} =
         cond do
           year_selector != "" and date_selector != "" ->
-            {get_data_from_selector(item, year_selector),
-             get_data_from_selector(item, date_selector)}
+            {get_text_from_selector(item, year_selector),
+             get_text_from_selector(item, date_selector)}
 
           year_selector != "" and date_selector == "" ->
-            {get_data_from_selector(item, year_selector), ""}
+            {get_text_from_selector(item, year_selector), ""}
 
           year_selector == "" and date_selector != "" ->
-            timestamp = get_data_from_selector(item, date_selector)
+            timestamp = get_text_from_selector(item, date_selector)
             parsed_date_tuple = DateTime.from_iso8601(timestamp)
 
             year =
@@ -306,19 +327,27 @@ defmodule Scraper do
           {"related_url", related_url},
           {"publisher", publisher},
           {"is_global", false},
-          {"is_pdf", true}
+          {"is_pdf", String.contains?(url, ".pdf")}
         ])
 
       details
     end
   end
 
-  defp get_data_from_selector(item, selector) do
+  defp get_text_from_selector(item, selector) do
     Floki.find(item, selector)
     |> Floki.text()
     |> to_string()
     |> String.replace("Published:", "")
     |> String.replace("Recent Publication:", "")
+    |> String.trim()
+  end
+
+  defp get_attribute_from_selector(item, selector, attribute) do
+    Floki.find(item, selector)
+    |> Floki.attribute(attribute)
+    |> Enum.at(0)
+    |> to_string()
     |> String.trim()
   end
 
