@@ -10,78 +10,6 @@ Mix.install([
 ])
 ```
 
-## Build the Form
-
-```elixir
-url_list = Kino.Input.textarea("Enter list of urls separated by commas")
-main_url = Kino.Input.text("Main URL")
-has_pagination = Kino.Input.checkbox("Has Pagination")
-num_pages = Kino.Input.text("Number of pages to scrape")
-
-main_url_slug =
-  Kino.Input.text(
-    "Re-enter main URL with a placeholder for page number e.g. 'https://example.com/#{}'"
-  )
-
-start_from = Kino.Input.text("Enter first value to apply to slug")
-
-page_change_direction =
-  Kino.Input.select("Increase or decrease value to get new pages",
-    increase: "Increase",
-    decrease: "Decrease"
-  )
-
-page_change_delta =
-  Kino.Input.text(
-    "Enter the integer delta to get next page e.g. if pages are 1,2,3 this should be 1"
-  )
-
-main_item_selector = Kino.Input.text("CSS Selector for the main item")
-scrape_each_page = Kino.Input.checkbox("Need to scrape individual page?")
-
-item_url_selector =
-  Kino.Input.text("CSS selector for main url (should be url of pdf if item is pdf)")
-
-item_url_selector_2 = Kino.Input.text("1st Alternative CSS selector for main url")
-item_url_selector_3 = Kino.Input.text("2nd Alternative CSS selector for main url")
-relative_url_prefix = Kino.Input.text("Prefix to add to relative urls")
-title_selector = Kino.Input.text("CSS selector for title")
-
-# Static values to include
-related_url_input = Kino.Input.text("Enter the related url")
-resource_type_input = Kino.Input.text("Enter the resource type as integer")
-publisher_input = Kino.Input.text("Enter the name of publisher")
-year_selector = Kino.Input.text("Enter the selector for year")
-date_selector = Kino.Input.text("Enter the selector for date")
-
-scraper_form =
-  Kino.Control.form(
-    [
-      main_url: main_url,
-      url_list: url_list,
-      has_pagination: has_pagination,
-      num_pages: num_pages,
-      main_url_slug: main_url_slug,
-      start_from: start_from,
-      page_change_direction: page_change_direction,
-      page_change_delta: page_change_delta,
-      related_url_input: related_url_input,
-      main_item_selector: main_item_selector,
-      item_url_selector: item_url_selector,
-      item_url_selector_2: item_url_selector_2,
-      item_url_selector_3: item_url_selector_3,
-      scrape_each_page: scrape_each_page,
-      relative_url_prefix: relative_url_prefix,
-      title_selector: title_selector,
-      year_selector: year_selector,
-      date_selector: date_selector,
-      resource_type_input: resource_type_input,
-      publisher_input: publisher_input
-    ],
-    submit: "Process"
-  )
-```
-
 ## Define the Scraper Module
 
 ```elixir
@@ -232,6 +160,7 @@ defmodule Scraper do
                   end
                 end, []}
            ],
+           follow_redirect: true,
            recv_timeout: 10000,
            timeout: 25000
          ) do
@@ -245,10 +174,15 @@ defmodule Scraper do
       {:error, %HTTP.Error{reason: reason}} ->
         Logger.error("HTTP Error: #{reason}")
         :error
+
+      _ ->
+        IO.inspect("Error getting url #{url}")
+        :error
     end
   end
 
   defp get_attributes(item, data) do
+    IO.inspect("now getting attributes")
     # use the selectors and static information given in data to extract details from the item
     title = get_text_from_selector(item, data.title_selector)
     url_selector_1 = get_clean_input(data.item_url_selector, :str)
@@ -369,6 +303,78 @@ defmodule Scraper do
     output
   end
 end
+```
+
+## Build the Form
+
+```elixir
+url_list = Kino.Input.textarea("Enter list of urls separated by commas")
+main_url = Kino.Input.text("Main URL")
+has_pagination = Kino.Input.checkbox("Has Pagination")
+num_pages = Kino.Input.text("Number of pages to scrape")
+
+main_url_slug =
+  Kino.Input.text(
+    "Re-enter main URL with a placeholder for page number e.g. 'https://example.com/#{}'"
+  )
+
+start_from = Kino.Input.text("Enter first value to apply to slug")
+
+page_change_direction =
+  Kino.Input.select("Increase or decrease value to get new pages",
+    increase: "Increase",
+    decrease: "Decrease"
+  )
+
+page_change_delta =
+  Kino.Input.text(
+    "Enter the integer delta to get next page e.g. if pages are 1,2,3 this should be 1"
+  )
+
+main_item_selector = Kino.Input.text("CSS Selector for the main item")
+scrape_each_page = Kino.Input.checkbox("Need to scrape individual page?")
+
+item_url_selector =
+  Kino.Input.text("CSS selector for main url (should be url of pdf if item is pdf)")
+
+item_url_selector_2 = Kino.Input.text("1st Alternative CSS selector for main url")
+item_url_selector_3 = Kino.Input.text("2nd Alternative CSS selector for main url")
+relative_url_prefix = Kino.Input.text("Prefix to add to relative urls")
+title_selector = Kino.Input.text("CSS selector for title")
+
+# Static values to include
+related_url_input = Kino.Input.text("Enter the related url")
+resource_type_input = Kino.Input.text("Enter the resource type as integer")
+publisher_input = Kino.Input.text("Enter the name of publisher")
+year_selector = Kino.Input.text("Enter the selector for year")
+date_selector = Kino.Input.text("Enter the selector for date")
+
+scraper_form =
+  Kino.Control.form(
+    [
+      main_url: main_url,
+      url_list: url_list,
+      has_pagination: has_pagination,
+      num_pages: num_pages,
+      main_url_slug: main_url_slug,
+      start_from: start_from,
+      page_change_direction: page_change_direction,
+      page_change_delta: page_change_delta,
+      related_url_input: related_url_input,
+      main_item_selector: main_item_selector,
+      item_url_selector: item_url_selector,
+      item_url_selector_2: item_url_selector_2,
+      item_url_selector_3: item_url_selector_3,
+      scrape_each_page: scrape_each_page,
+      relative_url_prefix: relative_url_prefix,
+      title_selector: title_selector,
+      year_selector: year_selector,
+      date_selector: date_selector,
+      resource_type_input: resource_type_input,
+      publisher_input: publisher_input
+    ],
+    submit: "Process"
+  )
 ```
 
 ## Listen to Form Submissions and Process them
