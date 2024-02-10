@@ -113,7 +113,7 @@ defmodule Scraper do
 
   # functions for getting main items from a page
   def scrape(url, main_item_selector) do
-    case HTTP.get(url, [],
+    case HTTP.get(url, ["Accept": "*/*", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"],
            ssl: [
              verify_fun:
                {fn _, reason, state ->
@@ -131,7 +131,9 @@ defmodule Scraper do
            timeout: 25000
          ) do
       {:ok, %HTTP.Response{status_code: 200, body: body}} ->
+        IO.inspect("main url body #{body}")
         {:ok, document} = Floki.parse_document(body)
+        IO.inspect(document)
         get_items(document, main_item_selector)
 
       {:ok, %HTTP.Response{status_code: status_code, body: _body}} ->
@@ -154,7 +156,7 @@ defmodule Scraper do
 
   # functions from getting information from a product page
   def scrape_page(url) do
-    case HTTP.get(url, [],
+    case HTTP.get(url, ["Accept": "*/*","User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"],
            ssl: [
              verify_fun:
                {fn _, reason, state ->
